@@ -14,22 +14,62 @@ In each realm's admin console, open **Realm settings → Events → Event listen
 
 ### Configuration
 
-Keycloak Snitch defines these six options. Set the environment variables on the **Keycloak container**. Keycloak passes their values to Keycloak Snitch through its SPI configuration mechanism.
+Snitch provides six configuration options. Set the corresponding environment variables on the **Keycloak container**. Keycloak passes their values to Snitch through its SPI configuration mechanism.
 
-| Snitch option        | Keycloak environment variable                        | Default                    | Meaning                                                                                                           |
-| -------------------- | ---------------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `webhook-url`        | `KC_SPI_EVENTS_LISTENER__SNITCH__WEBHOOK_URL`        | Required                   | Absolute webhook URL, such as `https://receiver.example/events`. Use HTTPS in production. Redirects are disabled. |
-| `webhook-secret`     | `KC_SPI_EVENTS_LISTENER__SNITCH__WEBHOOK_SECRET`     | Required                   | High-entropy shared secret used to sign requests. Set the same value on the receiver.                             |
-| `event-types`        | `KC_SPI_EVENTS_LISTENER__SNITCH__EVENT_TYPES`        | `LOGIN,LOGIN_ERROR,LOGOUT` | Comma-separated Keycloak user event types to forward.                                                             |
-| `connect-timeout-ms` | `KC_SPI_EVENTS_LISTENER__SNITCH__CONNECT_TIMEOUT_MS` | `1000`                     | Connection timeout in milliseconds. Must be positive.                                                             |
-| `request-timeout-ms` | `KC_SPI_EVENTS_LISTENER__SNITCH__REQUEST_TIMEOUT_MS` | `2000`                     | Request timeout in milliseconds. Must be positive.                                                                |
-| `queue-size`         | `KC_SPI_EVENTS_LISTENER__SNITCH__QUEUE_SIZE`         | `256`                      | Maximum events waiting per Keycloak instance, plus one in flight. Must be positive.                               |
+#### `webhook-url`
 
-If you use `keycloak.conf`, append the Snitch option name to `spi-events-listener--snitch--`, for example `spi-events-listener--snitch--webhook-url=https://receiver.example/events`.
+- **Environment:** `KC_SPI_EVENTS_LISTENER__SNITCH__WEBHOOK_URL`
+- **Default:** Required
+- **Description:** Absolute webhook URL, for example `https://receiver.example/events`. Use HTTPS in production. Redirects are disabled.
 
-The **example receiver container** reads `WEBHOOK_SECRET` for signature verification and `LISTEN_ADDR` for its listening address (default `127.0.0.1:8081`). Compose sets `LISTEN_ADDR=:8081` so Keycloak can reach it.
+#### `webhook-secret`
 
-Missing required settings or invalid configuration fail startup. A configured endpoint does not have to be reachable for Keycloak to start or authenticate users.
+- **Environment:** `KC_SPI_EVENTS_LISTENER__SNITCH__WEBHOOK_SECRET`
+- **Default:** Required
+- **Description:** High-entropy shared secret used to sign requests. Configure the same secret on the receiver.
+
+#### `event-types`
+
+- **Environment:** `KC_SPI_EVENTS_LISTENER__SNITCH__EVENT_TYPES`
+- **Default:** `LOGIN,LOGIN_ERROR,LOGOUT`
+- **Description:** Comma-separated list of Keycloak user event types to forward.
+
+#### `connect-timeout-ms`
+
+- **Environment:** `KC_SPI_EVENTS_LISTENER__SNITCH__CONNECT_TIMEOUT_MS`
+- **Default:** `1000` (1 second)
+- **Description:** HTTP connection timeout in milliseconds. Must be positive.
+
+#### `request-timeout-ms`
+
+- **Environment:** `KC_SPI_EVENTS_LISTENER__SNITCH__REQUEST_TIMEOUT_MS`
+- **Default:** `2000` (2 seconds)
+- **Description:** HTTP request timeout in milliseconds. Must be positive.
+
+#### `queue-size`
+
+- **Environment:** `KC_SPI_EVENTS_LISTENER__SNITCH__QUEUE_SIZE`
+- **Default:** `256`
+- **Description:** Maximum number of events waiting per Keycloak instance, plus one in flight. Must be positive.
+
+#### Alternative: `keycloak.conf`
+
+You can also configure Snitch through `keycloak.conf`. Prefix each option with `spi-events-listener--snitch--`.
+
+For example:
+
+```properties
+spi-events-listener--snitch--webhook-url=https://receiver.example/events
+```
+
+#### Example receiver
+
+The development receiver accepts two environment variables:
+
+- **`WEBHOOK_SECRET`** — Shared secret used to verify webhook signatures.
+- **`LISTEN_ADDR`** — HTTP listening address. Defaults to `127.0.0.1:8081`. Docker Compose sets it to `:8081` so Keycloak can reach the receiver.
+
+Missing required settings or invalid configuration cause Keycloak startup to fail. However, the webhook endpoint does not need to be reachable for Keycloak to start or authenticate users.
 
 ## Event contract
 

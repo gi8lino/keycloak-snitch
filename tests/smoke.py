@@ -80,7 +80,8 @@ try:
                  refresh_token=tokens["refresh_token"])["access_token"]
     # A second LOGIN is a FIFO marker after the filtered REFRESH_TOKEN.
     assert login("dev-password")["access_token"]
-    wait_for(lambda: len(events()) >= EXPECTED_EVENT_COUNT, EVENTS_TIMEOUT_SECONDS)
+    wait_for(lambda: len(events()) >=
+             EXPECTED_EVENT_COUNT, EVENTS_TIMEOUT_SECONDS)
     received = events()
     assert [event["type"] for event in received] == [
         "LOGIN_ERROR", "LOGIN", "LOGIN"], received

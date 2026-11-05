@@ -64,12 +64,14 @@ func verified(secret []byte, timestamp, signature string, body []byte, now time.
 // handler serves POST /events and writes each verified JSON object on its own line.
 func handler(secret []byte, out io.Writer) http.Handler {
 	mux := http.NewServeMux()
+
 	mux.HandleFunc("POST /events", func(w http.ResponseWriter, r *http.Request) {
 		media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || media != "application/json" {
 			http.Error(w, "expected application/json", http.StatusUnsupportedMediaType)
 			return
 		}
+
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 		if err != nil {
 			var oversized *http.MaxBytesError
@@ -80,15 +82,18 @@ func handler(secret []byte, out io.Writer) http.Handler {
 			}
 			return
 		}
+
 		if !verified(secret, r.Header.Get("X-Snitch-Timestamp"), r.Header.Get("X-Snitch-Signature"), body, time.Now()) {
 			http.Error(w, "signature or timestamp rejected", http.StatusUnauthorized)
 			return
 		}
+
 		var line bytes.Buffer
 		if json.Compact(&line, body) != nil || line.Bytes()[0] != '{' {
 			http.Error(w, "expected JSON object", http.StatusBadRequest)
 			return
 		}
+
 		line.WriteByte('\n')
 		if _, err := out.Write(line.Bytes()); err != nil {
 			log.Print("stdout write failed")
@@ -97,6 +102,7 @@ func handler(secret []byte, out io.Writer) http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+
 	return mux
 }
 

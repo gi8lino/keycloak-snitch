@@ -20,9 +20,33 @@ jobs:
           java-version: "21"
           cache: maven
       - name: Test and package the provider
-        run: mvn --batch-mode --no-transfer-progress clean verify
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            mvn --batch-mode --no-transfer-progress "-Drevision=${GITHUB_REF_NAME#v}" clean verify
+          else
+            mvn --batch-mode --no-transfer-progress clean verify
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: keycloak-snitch-provider
           path: target/keycloak-snitch-*.jar
           if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: keycloak-snitch-provider
+          path: dist
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/keycloak-snitch-*.jar
+          generate_release_notes: true
+          fail_on_unmatched_files: true

@@ -1,9 +1,10 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>io.github.gi8lino</groupId><artifactId>keycloak-snitch</artifactId><version>0.1.0</version>
+  <groupId>io.github.gi8lino</groupId><artifactId>keycloak-snitch</artifactId><version>${revision}</version>
   <name>Keycloak Snitch</name>
   <url>https://github.com/gi8lino/keycloak-snitch</url>
   <properties>
+    <revision>0.1.0</revision>
     <keycloak.version>26.8.1</keycloak.version>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

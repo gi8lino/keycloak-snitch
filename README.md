@@ -6,7 +6,7 @@ Keycloak Snitch forwards selected Keycloak user events to one HTTP webhook. Inst
 
 Source repository: https://github.com/gi8lino/keycloak-snitch.
 
-Build with JDK 21 and Maven 3.9 (`make build`). Copy `target/keycloak-snitch-0.1.0.jar` into the Keycloak 26.8.1 `providers/` directory before running `bin/kc.sh build` for an optimized installation. Start Keycloak with the webhook URL and secret configured. The JAR uses libraries supplied by Keycloak. Rebuild and test before upgrading Keycloak, which classifies this listener SPI as internal.
+Build with JDK 21 and Maven 3.9 (`make build`). Copy the versioned JAR from `target/` (for example, `keycloak-snitch-0.1.0.jar`) into the Keycloak 26.8.1 `providers/` directory before running `bin/kc.sh build` for an optimized installation. Start Keycloak with the webhook URL and secret configured. The JAR uses libraries supplied by Keycloak. Rebuild and test before upgrading Keycloak, which classifies this listener SPI as internal.
 
 The listener ID remains `snitch` to keep existing Keycloak realm and SPI settings compatible.
 
@@ -116,7 +116,14 @@ make run                            # build and start the two services
 docker compose logs -f receiver      # separate terminal
 ```
 
-Open http://localhost:8080/realms/keycloak-snitch-dev/account/ and try username **demo**, first with a wrong password and then with **dev-password**. Watch for LOGIN_ERROR and LOGIN. Admin console credentials are **dev-admin / dev-admin-password**. All credentials and the HTTP transport in Compose are for local development only.
+**For demo logins, open the [keycloak-snitch-dev account console](http://localhost:8080/realms/keycloak-snitch-dev/account/).** If you set `KC_PORT`, replace `8080` in the URL with that port.
+
+1. Sign in as **demo** with a wrong password. The receiver should print `LOGIN_ERROR`.
+2. Sign in as **demo** with **dev-password**. The receiver should print `LOGIN`.
+
+The `demo` user and `snitch` event listener are configured only in the **keycloak-snitch-dev** realm. Opening `http://localhost:8080/` leads to the **master** realm's admin console; trying `demo` there does not produce a Snitch webhook because the listener is not enabled in that realm.
+
+For administration, open the [admin console](http://localhost:8080/admin/master/console/) with **dev-admin / dev-admin-password**. All credentials and the HTTP transport in Compose are for local development only.
 
 ```sh
 docker compose stop receiver
@@ -130,18 +137,21 @@ The example receiver can also run independently: from `examples/receiver`, run `
 ### Automated checks
 
 ```sh
-make build    # installable JAR
+make version VERSION=0.2.0  # update the revision in pom.xml
+make build                 # clean, verify and build the installable JAR
 make test     # Java and Go unit tests
 make smoke    # disposable real Keycloak and receiver, port 18080
 make check    # unit tests and smoke test
 make clean    # remove Maven outputs
 ```
 
+On a version tag (`vX.Y.Z`), GitHub Actions runs `make version VERSION=X.Y.Z` followed by `make build`, and publishes the resulting JAR as a GitHub Release asset. The CI version change is made only in the workflow checkout; it is not committed back to the repository. For a local release, run `make version` before building.
+
 Override KC_PORT if a local port is occupied. The smoke test imports the realm and uses its dedicated direct-access-grant client to obtain real tokens, verifies failed and successful login events in receiver stdout, checks refresh filtering, then stops the receiver and obtains another token. It removes its own Compose project afterward. Keep the password grant confined to the development client.
 
 ## Installing the JAR from a Kubernetes PVC
 
-Build the JAR with `make build`, or extract it from the **keycloak-snitch-provider** workflow artifact. Place `keycloak-snitch-0.1.0.jar` in the **`providers/` directory at the root of the PVC**. For example, if a staging pod mounts the claim at `/mnt/keycloak-snitch`, copy the JAR to `/mnt/keycloak-snitch/providers/keycloak-snitch-0.1.0.jar` and make it readable by the Keycloak container user.
+Build the JAR with `make build`, download it from the GitHub Release assets, or extract it from the **keycloak-snitch-provider** workflow artifact. Place `keycloak-snitch-0.1.0.jar` in the **`providers/` directory at the root of the PVC**. For example, if a staging pod mounts the claim at `/mnt/keycloak-snitch`, copy the JAR to `/mnt/keycloak-snitch/providers/keycloak-snitch-0.1.0.jar` and make it readable by the Keycloak container user.
 
 Merge this fragment into your existing Keycloak Deployment or StatefulSet. Substitute your claim and container names. The single-file mount keeps the rest of the providers directory visible.
 

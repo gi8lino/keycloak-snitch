@@ -1,0 +1,28 @@
+{
+  "realm": "keycloak-snitch-dev",
+  "enabled": true,
+  "eventsListeners": ["jboss-logging", "snitch"],
+  "clients": [
+    {
+      "clientId": "smoke",
+      "enabled": true,
+      "publicClient": true,
+      "fullScopeAllowed": false,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false
+    }
+  ],
+  "users": [
+    {
+      "username": "demo",
+      "firstName": "Demo",
+      "lastName": "User",
+      "email": "demo@example.test",
+      "emailVerified": true,
+      "enabled": true,
+      "credentials": [
+        { "type": "password", "value": "dev-password", "temporary": false }
+      ]
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-FROM maven:3.9.11-eclipse-temurin-21 AS plugin
+FROM maven:3.10.0-eclipse-temurin-21 AS plugin
 WORKDIR /build
 COPY pom.xml .
 COPY src src

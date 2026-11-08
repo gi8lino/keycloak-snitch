@@ -7,7 +7,7 @@ Keycloak Snitch sends Keycloak login events to an HTTP webhook. It runs as a Key
 The included Docker Compose example starts Keycloak with Snitch and a small Go receiver that prints verified events to the terminal.
 
 ```sh
-make run
+make run                      # Starts Keycloak and prints the demo realm URL
 docker compose logs -f receiver
 ```
 
@@ -20,7 +20,7 @@ The demo user and Snitch listener are configured in the **keycloak-snitch-dev** 
 
 Stop the example with `make stop`. You can change the host port using `KC_PORT`. All example passwords and HTTP connections are **for local testing only**.
 
-For repeatable end-to-end verification, use the isolated [E2E Compose example](examples/e2e/README.md):
+For repeatable end-to-end verification, use the isolated [E2E Compose example](examples/e2e/README.md). It imports a separate `keycloak-snitch-e2e` realm from `examples/e2e/realm/` and prints that realm's account URL when starting:
 
 ```sh
 make e2e-test

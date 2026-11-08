@@ -1,0 +1,13 @@
+# Keycloak Snitch: HMAC-SHA256 over timestamp + "." + the original request body.
+max-body-bytes: 65536
+hmac:
+  enabled: true
+  secret-env: WEBHOOK_SECRET
+  algorithm: sha256
+  signature-header: X-Snitch-Signature
+  signature-prefix: "v1="
+  signature-encoding: hex
+  message-format: "{timestamp}.{body}"
+  timestamp-header: X-Snitch-Timestamp
+  timestamp-format: unix
+  max-age: 5m

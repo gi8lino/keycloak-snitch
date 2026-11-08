@@ -1,64 +1,91 @@
 # Keycloak Snitch: local end-to-end stack
 
-This isolated, **development-only** Docker Compose project exercises real Keycloak
-logins, Snitch's event listener, signature verification by the existing Go
-receiver, refresh filtering, and an outage of the receiver.
+This **development-only** Docker Compose project tests real Keycloak logins, the
+Snitch event listener, signature validation by [Hookglass](https://github.com/gi8lino/hookglass),
+refresh filtering, and an outage of the webhook receiver.
 
-It reuses the repository's `Dockerfile`, `examples/realm/` fixture, and
-`examples/receiver/` implementation. There is no Python smoke harness, no
-second realm fixture, and no duplicate Dockerfile.
+The stack builds Snitch using the repository's Keycloak `Dockerfile`, but imports
+its **own realm fixture** from [`realm/keycloak-snitch-e2e.json`](realm/keycloak-snitch-e2e.json).
+It does not depend on the ordinary development stack's `examples/realm/` fixture.
+Hookglass replaces the custom Go receiver, so no additional receiver source or
+Dockerfile is needed.
 
-## Commands
+## Start
 
-Run these from the **Snitch repository root**:
+From the **Snitch repository root**:
 
 ```sh
-make e2e-up       # Build and start isolated Keycloak and receiver
-make e2e-logs     # Follow Keycloak and receiver logs
-make e2e-test     # Reset only the E2E project, start it, and test the full flow
-make e2e-down     # Stop and remove E2E containers
-make e2e-reset    # Stop, remove containers, and remove E2E volumes
+make e2e-up       # Build and start Keycloak and Hookglass
+make e2e-logs     # Follow Keycloak and Hookglass logs
+make e2e-test     # Reset the E2E stack, start it, and verify the full flow
+make e2e-down     # Stop and remove the E2E containers
+make e2e-reset    # Stop and remove the E2E containers and volumes
 ```
 
-The test requires Docker Compose and `curl`, plus standard POSIX shell tools.
-No Python or `jq` is required. The successful test leaves the stack running
-and restarts the receiver after the outage check.
+The test requires Docker Compose, `curl`, and standard POSIX shell tools; it does
+not require Python or `jq`. After a successful test, the stack remains running
+with Hookglass restarted. `make e2e-up` prints the account URL of the imported
+`keycloak-snitch-e2e` realm.
 
-## Endpoints and credentials
+## Endpoints and test users
 
-- Keycloak: <http://127.0.0.1:18083/>
-- Demo account: <http://127.0.0.1:18083/realms/keycloak-snitch-dev/account/>
-- Admin console: <http://127.0.0.1:18083/admin/master/console/>
-- Admin: `dev-admin` / `dev-admin-password`
-- Test user: `demo` / `dev-password`
-- Automated test client: `smoke` (direct-access grants enabled)
+| Service | URL | Notes |
+| --- | --- | --- |
+| Keycloak | `http://127.0.0.1:18083/realms/keycloak-snitch-e2e/account/` | `keycloak-snitch-e2e` realm |
+| Hookglass | `http://127.0.0.1:18091/healthz` | Verifies Snitch webhooks on `/hmac` |
 
-Snitch events only flow from the **keycloak-snitch-dev** realm. The `master`
-admin realm is not configured with the Snitch listener. Incoming signed events
-are printed as one compact JSON object per line in the receiver logs.
+Keycloak administrator: `dev-admin` / `dev-admin-password`.
+Test user: `demo` / `dev-password`.
+Automated direct-grant client: `smoke`.
 
-The E2E Keycloak port defaults to **18083**, different from Warden's example
-port **18080** and Snitch's ordinary development port **8080**. Override the
-port or Compose project name with:
+For manual logins, open the [demo account console](http://127.0.0.1:18083/realms/keycloak-snitch-e2e/account/).
+The `snitch` event listener is enabled only in the `keycloak-snitch-e2e` realm,
+not in the `master` admin realm. For administration, use the
+[admin console](http://127.0.0.1:18083/admin/master/console/).
+
+The Keycloak port defaults to **18083**, different from Warden's E2E port
+**18080**. Hookglass uses **18091** on the host, so it can run alongside Warden's
+Hookglass receiver on **18090**. Both published ports bind only to `127.0.0.1`.
+Override ports or the Compose project name as needed:
 
 ```sh
-make e2e-test E2E_KC_PORT=18183 E2E_PROJECT=my-snitch-e2e
+E2E_RECEIVER_PORT=18191 make e2e-test E2E_KC_PORT=18183 E2E_PROJECT=my-snitch-e2e
+```
+
+## Hookglass HMAC verification
+
+Hookglass runs at `http://receiver:8080` on the Compose network and loads
+[`hmac.yaml`](hmac.yaml). Snitch sends to `http://receiver:8080/hmac`, using the
+same `dev-only-shared-secret` configured as `WEBHOOK_SECRET` in Hookglass.
+
+The receiver checks `X-Snitch-Signature` and `X-Snitch-Timestamp` against
+HMAC-SHA256 of the original `timestamp + "." + body` and a five-minute timestamp
+window. Missing or invalid signatures receive `401`; successfully verified
+requests are logged and receive `204`.
+
+Hookglass uses Go's default structured text logger. Each accepted event appears
+as `event=webhook_received path=/hmac verified=true`, with the request body as an
+escaped JSON string. It does not log raw signature headers or credentials.
+
+Inspect the events with:
+
+```sh
+docker compose -p keycloak-snitch-e2e -f examples/e2e/compose.yaml logs -f receiver
 ```
 
 ## What `make e2e-test` verifies
 
-1. A real invalid password grant returns `invalid_grant` and emits `LOGIN_ERROR`.
-2. A real correct password grant returns access and refresh tokens and emits `LOGIN`.
-3. Refreshing the token succeeds but does **not** emit an event because
-   `REFRESH_TOKEN` is not in the forwarding filter.
-4. A second successful login acts as a FIFO marker. The receiver has exactly
-   `LOGIN_ERROR`, `LOGIN`, `LOGIN`, each with a unique event ID, client ID, and
-   nonempty IP address. The Go receiver records events **only after verifying
-   their Snitch HMAC signatures**.
-5. With the receiver stopped, a real login still succeeds and Keycloak logs
-   that Snitch dropped an event.
-6. The receiver is restarted, leaving the environment available for inspection.
+1. Hookglass is healthy and rejects an unsigned request to `/hmac` with `401`.
+2. A real invalid password grant returns `invalid_grant` and produces `LOGIN_ERROR`.
+3. A successful password grant returns access and refresh tokens and produces `LOGIN`.
+4. Refreshing the token succeeds without forwarding `REFRESH_TOKEN`.
+5. A second successful login provides a FIFO marker. Hookglass records exactly
+   `LOGIN_ERROR`, `LOGIN`, `LOGIN`, each with a distinct ID, the `smoke` client ID,
+   and a nonempty IP address **after successful HMAC verification**.
+6. Stopping Hookglass does not prevent a real login, and Keycloak logs that Snitch
+   dropped the undeliverable event.
+7. Hookglass is restarted for further inspection.
 
-Every service uses test-only credentials and HTTP inside the Compose network;
-the published Keycloak port is bound to `127.0.0.1`. Never use this stack in
-production.
+**Security:** All credentials are for local testing. Hookglass's `/echo` route
+is unauthenticated, and verified request bodies may contain sensitive information.
+Do not expose this stack to the public Internet or reuse its secrets in production.

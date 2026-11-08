@@ -1,12 +1,17 @@
-# Development/test only: real Keycloak logins, the local Snitch JAR, and a
-# receiver that checks the Snitch HMAC signature before recording events.
+# Development only. Hookglass verifies Snitch's signed webhooks on the Compose
+# network; the receiver and Keycloak ports are exposed only on loopback.
 services:
   receiver:
-    build:
-      context: ../receiver
+    image: ghcr.io/gi8lino/hookglass:v0.0.2
+    ports:
+      - "127.0.0.1:${E2E_RECEIVER_PORT:-18091}:8080"
+    command:
+      - --config=/config/hmac.yaml
+      - --listen-address=:8080
     environment:
-      LISTEN_ADDR: ":8081"
       WEBHOOK_SECRET: dev-only-shared-secret
+    volumes:
+      - ./hmac.yaml:/config/hmac.yaml:ro
 
   keycloak:
     build:
@@ -15,11 +20,11 @@ services:
     ports:
       - "127.0.0.1:${E2E_KC_PORT:-18083}:8080"
     volumes:
-      - ../realm:/opt/keycloak/data/import:ro
+      - ./realm:/opt/keycloak/data/import:ro
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: dev-admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: dev-admin-password
-      KC_SPI_EVENTS_LISTENER__SNITCH__WEBHOOK_URL: http://receiver:8081/events
+      KC_SPI_EVENTS_LISTENER__SNITCH__WEBHOOK_URL: http://receiver:8080/hmac
       KC_SPI_EVENTS_LISTENER__SNITCH__WEBHOOK_SECRET: dev-only-shared-secret
       KC_SPI_EVENTS_LISTENER__SNITCH__EVENT_TYPES: LOGIN,LOGIN_ERROR,LOGOUT
     depends_on:

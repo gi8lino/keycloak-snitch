@@ -2,11 +2,29 @@
 
 Keycloak Snitch sends Keycloak login events to an HTTP webhook. It runs as a Keycloak event listener and works with receivers such as [Keycloak Warden](https://github.com/gi8lino/keycloak-warden).
 
+```mermaid
+flowchart TD
+    subgraph K["Keycloak"]
+        E["Authentication event"]
+        S["Snitch event listener"]
+        F{"Event type enabled?"}
+        Q["Asynchronous delivery queue"]
+
+        E --> S
+        S --> F
+        F -->|Yes, after commit| Q
+        F -->|No| I["Ignore event"]
+    end
+
+    Q -->|HMAC-signed HTTP POST| R["Webhook receiver"]
+    R -->|2xx| A["Acknowledged"]
+    R -.->|Non-2xx| D["Log warning / drop event"]
+    Q -.->|Connection error / timeout| D
+```
+
 ## Try it locally
 
-Use the **E2E Docker Compose stack** to start Keycloak with Snitch and
-[Hookglass](https://github.com/gi8lino/hookglass), which validates HMAC-signed
-webhooks before logging them:
+Use the **E2E Docker Compose stack** to start Keycloak with Snitch and [Hookglass](https://github.com/gi8lino/hookglass), which validates HMAC-signed webhooks before logging them:
 
 ```sh
 make e2e-up       # Build and start Keycloak and Hookglass; print the realm URL
@@ -15,21 +33,16 @@ make e2e-test     # Reset and verify real logins, token refresh, and an outage
 make e2e-down     # Stop the stack
 ```
 
-Open the [E2E demo account](http://127.0.0.1:18083/realms/keycloak-snitch-e2e/account/)
-(or the account URL printed by `make e2e-up`) and sign in as `demo`:
+Open the [E2E demo account](http://127.0.0.1:18083/realms/keycloak-snitch-e2e/account/) (or the account URL printed by `make e2e-up`) and sign in as `demo`:
 
 - A wrong password produces `LOGIN_ERROR`.
 - Password `dev-password` produces `LOGIN`.
 
-The test realm, the `smoke` OAuth client, and the `snitch` listener are defined in
-[`examples/e2e/realm/keycloak-snitch-e2e.json`](examples/e2e/realm/keycloak-snitch-e2e.json).
-The Keycloak admin console is at
-[http://127.0.0.1:18083/admin/master/console/](http://127.0.0.1:18083/admin/master/console/)
-with `dev-admin` / `dev-admin-password`. Override the host port with
-`make e2e-up E2E_KC_PORT=18183`.
+The test realm, the `smoke` OAuth client, and the `snitch` listener are defined in [`examples/e2e/realm/keycloak-snitch-e2e.json`](examples/e2e/realm/keycloak-snitch-e2e.json).
 
-See the [E2E guide](examples/e2e/README.md) for the full workflow. These are
-**development-only** credentials and HTTP endpoints; do not use them in production.
+The Keycloak admin console is at [http://127.0.0.1:18083/admin/master/console/](http://127.0.0.1:18083/admin/master/console/) with `dev-admin` / `dev-admin-password`. Override the host port with `make e2e-up E2E_KC_PORT=18183`.
+
+See the [E2E guide](examples/e2e/README.md) for the full workflow. These are **development-only** credentials and HTTP endpoints; do not use them in production.
 
 ## Install
 

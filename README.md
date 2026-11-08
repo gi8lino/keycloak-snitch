@@ -4,29 +4,32 @@ Keycloak Snitch sends Keycloak login events to an HTTP webhook. It runs as a Key
 
 ## Try it locally
 
-The included Docker Compose example starts Keycloak with Snitch and a small Go receiver that prints verified events to the terminal.
+Use the **E2E Docker Compose stack** to start Keycloak with Snitch and
+[Hookglass](https://github.com/gi8lino/hookglass), which validates HMAC-signed
+webhooks before logging them:
 
 ```sh
-make run                      # Starts Keycloak and prints the demo realm URL
-docker compose logs -f receiver
+make e2e-up       # Build and start Keycloak and Hookglass; print the realm URL
+make e2e-logs     # Follow Keycloak and verified webhook logs
+make e2e-test     # Reset and verify real logins, token refresh, and an outage
+make e2e-down     # Stop the stack
 ```
 
-Open the [demo account](http://localhost:8080/realms/keycloak-snitch-dev/account/) and sign in as `demo`:
+Open the [E2E demo account](http://127.0.0.1:18083/realms/keycloak-snitch-e2e/account/)
+(or the account URL printed by `make e2e-up`) and sign in as `demo`:
 
-- Use a wrong password to see `LOGIN_ERROR`.
-- Use `dev-password` to see `LOGIN`.
+- A wrong password produces `LOGIN_ERROR`.
+- Password `dev-password` produces `LOGIN`.
 
-The demo user and Snitch listener are configured in the **keycloak-snitch-dev** realm, not the `master` realm. The [admin console](http://localhost:8080/admin/master/console/) uses `dev-admin` / `dev-admin-password`.
+The test realm, the `smoke` OAuth client, and the `snitch` listener are defined in
+[`examples/e2e/realm/keycloak-snitch-e2e.json`](examples/e2e/realm/keycloak-snitch-e2e.json).
+The Keycloak admin console is at
+[http://127.0.0.1:18083/admin/master/console/](http://127.0.0.1:18083/admin/master/console/)
+with `dev-admin` / `dev-admin-password`. Override the host port with
+`make e2e-up E2E_KC_PORT=18183`.
 
-Stop the example with `make stop`. You can change the host port using `KC_PORT`. All example passwords and HTTP connections are **for local testing only**.
-
-For repeatable end-to-end verification, use the isolated [E2E Compose example](examples/e2e/README.md). It imports a separate `keycloak-snitch-e2e` realm from `examples/e2e/realm/` and prints that realm's account URL when starting:
-
-```sh
-make e2e-test
-make e2e-logs
-make e2e-down
-```
+See the [E2E guide](examples/e2e/README.md) for the full workflow. These are
+**development-only** credentials and HTTP endpoints; do not use them in production.
 
 ## Install
 
@@ -98,7 +101,7 @@ Calculate the HMAC using the shared secret and the **raw request body** (before 
 HMAC-SHA256(secret, timestamp + "." + rawBody)
 ```
 
-Compare the decoded digest in constant time, reject old timestamps, and deduplicate event IDs. The example receiver accepts a five-minute timestamp window and bodies up to 64 KiB. Return a `2xx` HTTP status to acknowledge delivery.
+Compare the decoded digest in constant time, reject old timestamps, and deduplicate event IDs. The included Hookglass configuration accepts a five-minute timestamp window and bodies up to 64 KiB. Return a `2xx` HTTP status to acknowledge delivery.
 
 ## Delivery behavior
 
@@ -118,11 +121,12 @@ Store the shared secret in a Kubernetes Secret, use HTTPS for external webhooks,
 
 ```sh
 make build                  # Build and test the JAR
-make test                   # Java and Go unit tests
-make e2e-test               # Isolated real Keycloak / receiver integration test
-make e2e-logs               # Follow E2E Keycloak and receiver logs
+make test                   # Java unit tests
+make check                  # Java tests and E2E shell syntax
+make verify                 # All local checks (no Docker)
+make e2e-test               # Real Keycloak / Hookglass integration test
+make e2e-logs               # Follow E2E Keycloak and Hookglass logs
 make e2e-down               # Stop the E2E stack
-make check                  # Unit tests and the E2E test
 make version VERSION=0.2.0  # Set the next JAR version
 make clean                  # Remove build outputs
 ```

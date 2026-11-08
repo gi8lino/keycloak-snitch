@@ -20,6 +20,14 @@ The demo user and Snitch listener are configured in the **keycloak-snitch-dev** 
 
 Stop the example with `make stop`. You can change the host port using `KC_PORT`. All example passwords and HTTP connections are **for local testing only**.
 
+For repeatable end-to-end verification, use the isolated [E2E Compose example](examples/e2e/README.md):
+
+```sh
+make e2e-test
+make e2e-logs
+make e2e-down
+```
+
 ## Install
 
 1. Download the JAR from [Releases](https://github.com/gi8lino/keycloak-snitch/releases) or build it with `make build` (JDK 21 and Maven required).
@@ -111,13 +119,15 @@ Store the shared secret in a Kubernetes Secret, use HTTPS for external webhooks,
 ```sh
 make build                  # Build and test the JAR
 make test                   # Java and Go unit tests
-make smoke                  # Real Keycloak and receiver integration test
-make check                  # Unit tests and smoke test
+make e2e-test               # Isolated real Keycloak / receiver integration test
+make e2e-logs               # Follow E2E Keycloak and receiver logs
+make e2e-down               # Stop the E2E stack
+make check                  # Unit tests and the E2E test
 make version VERSION=0.2.0  # Set the next JAR version
 make clean                  # Remove build outputs
 ```
 
-The smoke test requires Docker Compose and Python 3. Tagged releases publish a versioned JAR to GitHub Releases.
+The E2E test requires Docker Compose and `curl`; no Python or `jq` is needed. Tagged releases publish a versioned JAR to GitHub Releases.
 
 ## License
 

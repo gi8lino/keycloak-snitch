@@ -1,0 +1,27 @@
+# Development/test only: real Keycloak logins, the local Snitch JAR, and a
+# receiver that checks the Snitch HMAC signature before recording events.
+services:
+  receiver:
+    build:
+      context: ../receiver
+    environment:
+      LISTEN_ADDR: ":8081"
+      WEBHOOK_SECRET: dev-only-shared-secret
+
+  keycloak:
+    build:
+      context: ../..
+    command: ["start-dev", "--import-realm"]
+    ports:
+      - "127.0.0.1:${E2E_KC_PORT:-18083}:8080"
+    volumes:
+      - ../realm:/opt/keycloak/data/import:ro
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: dev-admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: dev-admin-password
+      KC_SPI_EVENTS_LISTENER__SNITCH__WEBHOOK_URL: http://receiver:8081/events
+      KC_SPI_EVENTS_LISTENER__SNITCH__WEBHOOK_SECRET: dev-only-shared-secret
+      KC_SPI_EVENTS_LISTENER__SNITCH__EVENT_TYPES: LOGIN,LOGIN_ERROR,LOGOUT
+    depends_on:
+      receiver:
+        condition: service_started

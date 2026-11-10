@@ -44,10 +44,7 @@ public final class KeycloakSnitchFactory implements EventListenerProviderFactory
             throw new IllegalArgumentException("Configure webhook-secret");
         }
 
-        types = EnumSet.noneOf(EventType.class);
-        for (String name : config.get("event-types", "LOGIN_ERROR").split(",")) {
-            types.add(EventType.valueOf(name.trim()));
-        }
+        types = parseEventTypes(config.get("event-types", "LOGIN_ERROR"));
 
         delivery = new Delivery(
                 endpoint,
@@ -56,6 +53,25 @@ public final class KeycloakSnitchFactory implements EventListenerProviderFactory
                 Duration.ofMillis(positive(config, "request-timeout-ms", DEFAULT_REQUEST_TIMEOUT_MS)),
                 positive(config, "queue-size", DEFAULT_QUEUE_SIZE)
         );
+    }
+
+    private static Set<EventType> parseEventTypes(String configured) {
+        Set<EventType> selected = EnumSet.noneOf(EventType.class);
+
+        for (String entry : configured.split(",", -1)) {
+            String name = entry.trim();
+            if (name.isEmpty()) {
+                throw new IllegalArgumentException("event-types must not contain empty entries");
+            }
+
+            try {
+                selected.add(EventType.valueOf(name));
+            } catch (IllegalArgumentException invalid) {
+                throw new IllegalArgumentException("Invalid event-types value: " + name, invalid);
+            }
+        }
+
+        return selected;
     }
 
     private static boolean isWebhookEndpoint(URI endpoint) {

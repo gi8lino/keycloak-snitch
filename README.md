@@ -53,6 +53,16 @@ See the [E2E guide](examples/e2e/README.md) for the full workflow. These are **d
 
 Use a Snitch build compatible with your Keycloak version. The event listener SPI is internal to Keycloak and may change between releases. Snitch forwards user events, not admin events.
 
+## Keycloak event settings
+
+Keycloak distinguishes between event listeners and event storage under **Realm settings → Events**:
+
+- **Event listeners** — Add `snitch` to enable forwarding for a realm.
+- **Save events / Saved types** — Control which events Keycloak stores in its database. These settings do not filter events delivered to Snitch.
+- **Snitch `EVENT_TYPES`** — Controls which received events Snitch forwards to the webhook. This SPI setting applies to all realms using Snitch.
+
+**Event storage does not need to be enabled for Snitch to work.** Register the listener in the desired realms and configure the event types globally.
+
 ## Configuration
 
 Set the following environment variables **on Keycloak**:
@@ -67,7 +77,7 @@ The webhook URL and shared secret are required. Configure the same secret on the
 
 Optional settings (defaults in parentheses):
 
-- `KC_SPI_EVENTS_LISTENER__SNITCH__EVENT_TYPES` — Events to forward (`LOGIN,LOGIN_ERROR,LOGOUT`).
+- `KC_SPI_EVENTS_LISTENER__SNITCH__EVENT_TYPES` — Events to forward (`LOGIN_ERROR`).
 - `KC_SPI_EVENTS_LISTENER__SNITCH__CONNECT_TIMEOUT_MS` — Connection timeout (`1000` ms).
 - `KC_SPI_EVENTS_LISTENER__SNITCH__REQUEST_TIMEOUT_MS` — Request timeout (`2000` ms).
 - `KC_SPI_EVENTS_LISTENER__SNITCH__QUEUE_SIZE` — Pending events per Keycloak instance (`256`, plus one in flight).

@@ -1,12 +1,18 @@
 package io.github.gi8lino.keycloak.snitch;
 
 import java.net.URI;
-import java.net.http.*;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
-import java.time.*;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HexFormat;
-import java.util.concurrent.*;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -21,6 +27,7 @@ final class Delivery implements AutoCloseable {
     private static final int HTTP_SUCCESS_MIN = 200;
     private static final int HTTP_SUCCESS_MAX = 299;
     private static final System.Logger LOG = System.getLogger("io.github.gi8lino.keycloak.snitch");
+
     private final ThreadPoolExecutor worker;
     private final URI endpoint;
     private final SecretKeySpec key;
@@ -28,21 +35,17 @@ final class Delivery implements AutoCloseable {
     private final Duration timeout;
     private final AtomicLong lastWarning = new AtomicLong();
 
-    Delivery(
-            URI endpoint,
-            String secret,
-            Duration connect,
-            Duration timeout,
-            int capacity
-    ) {
+    Delivery(URI endpoint, String secret, Duration connect, Duration timeout, int capacity) {
         this.endpoint = endpoint;
         this.timeout = timeout;
-        key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-        client = HttpClient.newBuilder()
+        this.key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+
+        this.client = HttpClient.newBuilder()
                 .connectTimeout(connect)
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
-        worker = new ThreadPoolExecutor(
+
+        this.worker = new ThreadPoolExecutor(
                 DELIVERY_WORKERS,
                 DELIVERY_WORKERS,
                 WORKER_KEEP_ALIVE_SECONDS,
@@ -61,32 +64,19 @@ final class Delivery implements AutoCloseable {
         }
     }
 
-    private void warn(String reason) {
-        long now = System.currentTimeMillis();
-        long previous = lastWarning.get();
-        if (now - previous >= WARNING_INTERVAL_MS && lastWarning.compareAndSet(previous, now))
-            LOG.log(System.Logger.Level.WARNING, "Keycloak Snitch dropped event(s): " + reason);
-    }
-
-    /** Signs the delivery timestamp, a period and the exact request bytes. */
-    static String signature(SecretKeySpec key, String timestamp, byte[] body) throws GeneralSecurityException {
-        Mac mac = Mac.getInstance("HmacSHA256");
-        mac.init(key);
-        mac.update((timestamp + ".").getBytes(StandardCharsets.US_ASCII));
-        return "v1=" + HexFormat.of().formatHex(mac.doFinal(body));
-    }
-
     private void send(Payload event) {
         try {
             byte[] body = JsonSerialization.writeValueAsBytes(event);
             String timestamp = Long.toString(Instant.now().getEpochSecond());
-            var request = HttpRequest.newBuilder(endpoint)
+
+            HttpRequest request = HttpRequest.newBuilder(endpoint)
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
                     .header("X-Snitch-Timestamp", timestamp)
                     .header("X-Snitch-Signature", signature(key, timestamp, body))
                     .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                     .build();
+
             var response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
             try (var ignored = response.body()) {
                 int status = response.statusCode();
@@ -102,9 +92,31 @@ final class Delivery implements AutoCloseable {
         }
     }
 
-    @Override public void close() {
-        if (!worker.shutdownNow().isEmpty()) warn("pending queue discarded at shutdown");
+    /** Signs the delivery timestamp, a period, and the exact request bytes. */
+    static String signature(SecretKeySpec key, String timestamp, byte[] body) throws GeneralSecurityException {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(key);
+        mac.update((timestamp + ".").getBytes(StandardCharsets.US_ASCII));
+
+        return "v1=" + HexFormat.of().formatHex(mac.doFinal(body));
+    }
+
+    private void warn(String reason) {
+        long now = System.currentTimeMillis();
+        long previous = lastWarning.get();
+
+        if (now - previous >= WARNING_INTERVAL_MS && lastWarning.compareAndSet(previous, now)) {
+            LOG.log(System.Logger.Level.WARNING, "Keycloak Snitch dropped event(s): " + reason);
+        }
+    }
+
+    @Override
+    public void close() {
+        if (!worker.shutdownNow().isEmpty()) {
+            warn("pending queue discarded at shutdown");
+        }
         client.shutdownNow();
+
         try {
             worker.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException interrupted) {

@@ -1,15 +1,25 @@
 package io.github.gi8lino.keycloak.snitch;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.sun.net.httpserver.HttpServer;
-import java.net.*;
-import java.time.*;
-import java.util.*;
-import java.util.concurrent.*;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.time.Duration;
+import java.util.Map;
+import java.util.ServiceLoader;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.Test;
-import org.keycloak.events.*;
+import org.keycloak.events.Event;
+import org.keycloak.events.EventListenerProviderFactory;
+import org.keycloak.events.EventType;
 import org.keycloak.util.JsonSerialization;
-import static org.junit.jupiter.api.Assertions.*;
 
 class KeycloakSnitchTest {
     private static final long SNAPSHOT_EVENT_TIME_MS = 123;
@@ -26,18 +36,23 @@ class KeycloakSnitchTest {
     private static final int DELIVERY_QUEUE_CAPACITY = 1;
     private static final long EVENT_WAIT_SECONDS = 3;
 
-    @Test void discoversProvider() {
+    @Test
+    void discoversProvider() {
         assertTrue(ServiceLoader.load(EventListenerProviderFactory.class).stream()
-                .anyMatch(p -> p.type() == KeycloakSnitchFactory.class && p.get().getId().equals("snitch")));
+                .anyMatch(provider -> provider.type() == KeycloakSnitchFactory.class
+                        && provider.get().getId().equals("snitch")));
     }
 
-    @Test void snapshotHasFixedFieldsAndPreservesNulls() throws Exception {
+    @Test
+    void snapshotHasFixedFieldsAndPreservesNulls() throws Exception {
         Event event = new Event();
         event.setType(EventType.LOGIN_ERROR);
         event.setTime(SNAPSHOT_EVENT_TIME_MS);
         event.setDetails(Map.of("password", "private"));
+
         Payload snapshot = Payload.from(event);
         event.setUserId("later");
+
         var json = JsonSerialization.mapper.readTree(JsonSerialization.writeValueAsBytes(snapshot));
         assertEquals(EXPECTED_PAYLOAD_FIELDS, json.size());
         assertTrue(json.get("userId").isNull());
@@ -45,20 +60,27 @@ class KeycloakSnitchTest {
         assertEquals("1970-01-01T00:00:00.123Z", json.get("timestamp").asText());
         assertEquals("LOGIN_ERROR", json.get("type").asText());
         UUID.fromString(json.get("id").asText());
+
         event.setId("native");
         assertEquals("native", Payload.from(event).id());
     }
 
-    @Test void signatureMatchesIndependentVector() throws Exception {
-        var key = new SecretKeySpec(new byte[]{'k','e','y'}, "HmacSHA256");
-        assertEquals("v1=9d713ed406bb7076d4123f0dc2c39d2df5c654ed4b0cd56b52c8b4c940bd63ae",
-                Delivery.signature(key, "1700000000", new byte[]{'{','}'}));
+    @Test
+    void signatureMatchesIndependentVector() throws Exception {
+        var key = new SecretKeySpec(new byte[]{'k', 'e', 'y'}, "HmacSHA256");
+
+        assertEquals(
+                "v1=9d713ed406bb7076d4123f0dc2c39d2df5c654ed4b0cd56b52c8b4c940bd63ae",
+                Delivery.signature(key, "1700000000", new byte[]{'{', '}'})
+        );
     }
 
-    @Test void boundedQueueDropsExcessAndContinuesAfterTimeoutAnd500() throws Exception {
+    @Test
+    void boundedQueueDropsExcessAndContinuesAfterTimeoutAnd500() throws Exception {
         var started = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var received = new LinkedBlockingQueue<String>();
+
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", AUTO_ASSIGNED_PORT), DEFAULT_HTTP_BACKLOG);
         var handlers = Executors.newCachedThreadPool();
         server.setExecutor(handlers);
@@ -66,15 +88,24 @@ class KeycloakSnitchTest {
             try (exchange) {
                 String id = JsonSerialization.mapper.readTree(exchange.getRequestBody()).get("id").asText();
                 received.add(id);
+
                 if (id.equals("slow")) {
                     started.countDown();
-                    try { release.await(SLOW_HANDLER_WAIT_SECONDS, TimeUnit.SECONDS); }
-                    catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    try {
+                        release.await(SLOW_HANDLER_WAIT_SECONDS, TimeUnit.SECONDS);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
-                exchange.sendResponseHeaders(id.equals("failure") ? HTTP_FAILURE_STATUS : HTTP_SUCCESS_STATUS, NO_RESPONSE_BODY);
+
+                exchange.sendResponseHeaders(
+                        id.equals("failure") ? HTTP_FAILURE_STATUS : HTTP_SUCCESS_STATUS,
+                        NO_RESPONSE_BODY
+                );
             }
         });
         server.start();
+
         var delivery = new Delivery(
                 URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
                 "secret",
@@ -82,13 +113,16 @@ class KeycloakSnitchTest {
                 Duration.ofMillis(DELIVERY_REQUEST_TIMEOUT_MS),
                 DELIVERY_QUEUE_CAPACITY
         );
+
         try {
             delivery.offer(payload("slow"));
             assertTrue(started.await(EVENT_WAIT_SECONDS, TimeUnit.SECONDS));
+
             delivery.offer(payload("failure"));
             delivery.offer(payload("overflow"));
             assertEquals("slow", received.poll());
             assertEquals("failure", received.poll(EVENT_WAIT_SECONDS, TimeUnit.SECONDS));
+
             delivery.offer(payload("next"));
             assertEquals("next", received.poll(EVENT_WAIT_SECONDS, TimeUnit.SECONDS));
         } finally {
@@ -97,6 +131,7 @@ class KeycloakSnitchTest {
             server.stop(IMMEDIATE_SHUTDOWN_DELAY_SECONDS);
             handlers.shutdownNow();
         }
+
         delivery.offer(payload("after-close"));
         assertTrue(received.isEmpty());
     }
@@ -105,6 +140,7 @@ class KeycloakSnitchTest {
         Event event = new Event();
         event.setType(EventType.LOGIN);
         event.setId(id);
+
         return Payload.from(event);
     }
 }

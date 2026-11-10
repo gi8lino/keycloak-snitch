@@ -1,9 +1,9 @@
 package io.github.gi8lino.keycloak.snitch;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
 import java.util.UUID;
 import org.keycloak.events.Event;
-import com.fasterxml.jackson.annotation.JsonInclude;
 
 /** Immutable snapshot of the fields in a version 1 webhook. */
 @JsonInclude(JsonInclude.Include.ALWAYS)
@@ -27,6 +27,7 @@ record Payload(
         if (id == null || id.isBlank()) {
             id = UUID.randomUUID().toString();
         }
+
         String timestamp = Instant.ofEpochMilli(event.getTime()).toString();
 
         return new Payload(

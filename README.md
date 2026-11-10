@@ -1,5 +1,9 @@
 # Keycloak Snitch
 
+<p align="center">
+  <img src="assets/snitch.svg" alt="Keycloak Snitch" width="240" />
+</p>
+
 Keycloak Snitch sends Keycloak login events to an HTTP webhook. It runs as a Keycloak event listener and works with receivers such as [Keycloak Warden](https://github.com/gi8lino/keycloak-warden).
 
 ```mermaid

@@ -77,12 +77,10 @@ final class Delivery implements AutoCloseable {
                     .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                     .build();
 
-            var response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            try (var ignored = response.body()) {
-                int status = response.statusCode();
-                if (status < HTTP_SUCCESS_MIN || status > HTTP_SUCCESS_MAX) {
-                    warn("receiver HTTP " + status);
-                }
+            HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
+            int status = response.statusCode();
+            if (status < HTTP_SUCCESS_MIN || status > HTTP_SUCCESS_MAX) {
+                warn("receiver HTTP " + status);
             }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();

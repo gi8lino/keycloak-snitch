@@ -13,6 +13,7 @@ import org.keycloak.models.KeycloakSessionFactory;
 
 /** Configures the shared delivery worker and creates a listener for each Keycloak session. */
 public final class KeycloakSnitchFactory implements EventListenerProviderFactory {
+    private static final String DEFAULT_EVENT_TYPES = "LOGIN_ERROR";
     private static final int DEFAULT_CONNECT_TIMEOUT_MS = 1_000;
     private static final int DEFAULT_REQUEST_TIMEOUT_MS = 2_000;
     private static final int DEFAULT_QUEUE_SIZE = 256;
@@ -44,7 +45,7 @@ public final class KeycloakSnitchFactory implements EventListenerProviderFactory
             throw new IllegalArgumentException("Configure webhook-secret");
         }
 
-        types = parseEventTypes(config.get("event-types", "LOGIN_ERROR"));
+        types = parseEventTypes(config.get("event-types", DEFAULT_EVENT_TYPES));
 
         delivery = new Delivery(
                 endpoint,

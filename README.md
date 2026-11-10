@@ -130,7 +130,7 @@ Compare the decoded digest in constant time, reject old timestamps, and deduplic
 
 Snitch queues events after their Keycloak transaction commits and sends them asynchronously, so webhook latency does not block logins. Rolled-back events are discarded.
 
-**Delivery is best effort:** there is no persistent queue or retry. A full queue, timeout, receiver error, or shutdown can lose an event. Monitor Keycloak warnings and size the queue for your load.
+**Delivery is best effort:** there is no persistent queue or retry. A full queue, timeout, or receiver error can lose an event. On shutdown, Snitch waits up to three seconds for queued deliveries to finish, then interrupts any remaining work. Events may still be lost. Monitor Keycloak warnings and size the queue for your load.
 
 ## Kubernetes
 

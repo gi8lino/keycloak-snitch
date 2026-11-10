@@ -112,15 +112,23 @@ final class Delivery implements AutoCloseable {
 
     @Override
     public void close() {
-        if (!worker.shutdownNow().isEmpty()) {
-            warn("pending queue discarded at shutdown");
-        }
-        client.shutdownNow();
+        worker.shutdown();
 
         try {
-            worker.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!worker.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                stopPendingDeliveries();
+            }
         } catch (InterruptedException interrupted) {
+            stopPendingDeliveries();
             Thread.currentThread().interrupt();
+        } finally {
+            client.shutdownNow();
+        }
+    }
+
+    private void stopPendingDeliveries() {
+        if (!worker.shutdownNow().isEmpty()) {
+            warn("pending queue discarded at shutdown");
         }
     }
 }

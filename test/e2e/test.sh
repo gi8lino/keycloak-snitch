@@ -4,8 +4,8 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 project=${E2E_PROJECT:-keycloak-snitch-e2e}
-compose_file="$root/examples/e2e/compose.yaml"
-realm_file="$root/examples/e2e/realm/keycloak-snitch-e2e.json"
+compose_file="$root/test/e2e/compose.yaml"
+realm_file="$root/test/e2e/realm/keycloak-snitch-e2e.json"
 realm=$(sed -n 's/^[[:space:]]*"realm"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$realm_file")
 if [ -z "$realm" ]; then
 	printf 'Could not determine E2E realm from %s\n' "$realm_file" >&2

@@ -42,11 +42,11 @@ Open the [E2E demo account](http://127.0.0.1:18083/realms/keycloak-snitch-e2e/ac
 - A wrong password produces `LOGIN_ERROR`.
 - Password `dev-password` produces `LOGIN`.
 
-The test realm, the `smoke` OAuth client, and the `snitch` listener are defined in [`examples/e2e/realm/keycloak-snitch-e2e.json`](examples/e2e/realm/keycloak-snitch-e2e.json).
+The test realm, the `smoke` OAuth client, and the `snitch` listener are defined in [`test/e2e/realm/keycloak-snitch-e2e.json`](test/e2e/realm/keycloak-snitch-e2e.json).
 
 The Keycloak admin console is at [http://127.0.0.1:18083/admin/master/console/](http://127.0.0.1:18083/admin/master/console/) with `dev-admin` / `dev-admin-password`. Override the host port with `make e2e-up E2E_KC_PORT=18183`.
 
-See the [E2E guide](examples/e2e/README.md) for the full workflow. These are **development-only** credentials and HTTP endpoints; do not use them in production.
+See the [E2E guide](test/e2e/README.md) for the full workflow. These are **development-only** credentials and HTTP endpoints; do not use them in production.
 
 ## Install
 

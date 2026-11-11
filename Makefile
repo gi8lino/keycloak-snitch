@@ -12,10 +12,10 @@ VERSIONS_MAVEN_PLUGIN_VERSION ?= 2.22.0
 E2E_PROJECT ?= keycloak-snitch-e2e
 E2E_KC_PORT ?= 18083
 E2E_RECEIVER_PORT ?= 18091
-E2E_REALM_FILE := examples/e2e/realm/keycloak-snitch-e2e.json
+E2E_REALM_FILE := test/e2e/realm/keycloak-snitch-e2e.json
 E2E_REALM := $(shell sed -n 's/^[[:space:]]*"realm"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' $(E2E_REALM_FILE))
 E2E_KC_REALM_URL := http://127.0.0.1:$(E2E_KC_PORT)/realms/$(E2E_REALM)/account/
-E2E_COMPOSE := examples/e2e/compose.yaml
+E2E_COMPOSE := test/e2e/compose.yaml
 E2E_DOCKER_COMPOSE = E2E_KC_PORT=$(E2E_KC_PORT) E2E_RECEIVER_PORT=$(E2E_RECEIVER_PORT) docker compose -p $(E2E_PROJECT) -f $(E2E_COMPOSE)
 
 ## Shared Development Tools
@@ -64,7 +64,7 @@ e2e-reset: ## Stop the E2E stack and remove its volumes.
 e2e-test: ## Test real Keycloak login, refresh, and Hookglass outage flows.
 	$(MAKE) e2e-reset
 	$(MAKE) e2e-up
-	E2E_PROJECT="$(E2E_PROJECT)" E2E_KC_PORT="$(E2E_KC_PORT)" E2E_RECEIVER_PORT="$(E2E_RECEIVER_PORT)" sh examples/e2e/test.sh
+	E2E_PROJECT="$(E2E_PROJECT)" E2E_KC_PORT="$(E2E_KC_PORT)" E2E_RECEIVER_PORT="$(E2E_RECEIVER_PORT)" sh test/e2e/test.sh
 
 ##@ Testing
 
@@ -74,7 +74,7 @@ test: ## Run Java unit tests.
 
 .PHONY: check
 check: test ## Run unit tests and validate the E2E script's shell syntax.
-	sh -n examples/e2e/test.sh
+	sh -n test/e2e/test.sh
 
 .PHONY: verify
 verify: check ## Run all local checks without starting Docker Compose.

@@ -48,7 +48,7 @@ Hookglass uses Go's default structured text logger. Each accepted event appears 
 Inspect the events with:
 
 ```sh
-docker compose -p keycloak-snitch-e2e -f examples/e2e/compose.yaml logs -f receiver
+docker compose -p keycloak-snitch-e2e -f test/e2e/compose.yaml logs -f receiver
 ```
 
 ## What `make e2e-test` verifies

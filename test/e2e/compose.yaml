@@ -16,7 +16,7 @@ services:
   keycloak:
     build:
       context: ../..
-      dockerfile: examples/e2e/Dockerfile
+      dockerfile: test/e2e/Dockerfile
     command: ["start-dev", "--import-realm"]
     ports:
       - "127.0.0.1:${E2E_KC_PORT:-18083}:8080"

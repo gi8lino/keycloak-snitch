@@ -20,6 +20,13 @@ import org.keycloak.util.JsonSerialization;
 
 /** Owns the bounded queue and HTTP client shared by listeners on this Keycloak instance. */
 final class Delivery implements AutoCloseable {
+    /** Header containing the delivery timestamp used for replay protection. */
+    private static final String HEADER_TIMESTAMP = "X-Snitch-Timestamp";
+    /** Header containing the versioned HMAC signature of the request. */
+    private static final String HEADER_SIGNATURE = "X-Snitch-Signature";
+    /** Identifies the first version of the request-signing protocol. */
+    private static final String SIGNATURE_PREFIX = "v1=";
+
     private static final int DELIVERY_WORKERS = 1;
     private static final long WORKER_KEEP_ALIVE_SECONDS = 0;
     private static final long WARNING_INTERVAL_MS = 1_000;
@@ -72,8 +79,8 @@ final class Delivery implements AutoCloseable {
             HttpRequest request = HttpRequest.newBuilder(endpoint)
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
-                    .header("X-Snitch-Timestamp", timestamp)
-                    .header("X-Snitch-Signature", signature(key, timestamp, body))
+                    .header(HEADER_TIMESTAMP, timestamp)
+                    .header(HEADER_SIGNATURE, signature(key, timestamp, body))
                     .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                     .build();
 
@@ -96,7 +103,7 @@ final class Delivery implements AutoCloseable {
         mac.init(key);
         mac.update((timestamp + ".").getBytes(StandardCharsets.US_ASCII));
 
-        return "v1=" + HexFormat.of().formatHex(mac.doFinal(body));
+        return SIGNATURE_PREFIX + HexFormat.of().formatHex(mac.doFinal(body));
     }
 
     private void warn(String reason) {

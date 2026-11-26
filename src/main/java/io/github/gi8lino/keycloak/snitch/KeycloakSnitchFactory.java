@@ -13,6 +13,21 @@ import org.keycloak.models.KeycloakSessionFactory;
 
 /** Configures the shared delivery worker and creates a listener for each Keycloak session. */
 public final class KeycloakSnitchFactory implements EventListenerProviderFactory {
+    /** Stable SPI identifier used in realm and server configuration. */
+    private static final String PROVIDER_ID = "snitch";
+    /** SPI setting for the HTTP endpoint receiving selected events. */
+    private static final String CONFIG_WEBHOOK_URL = "webhook-url";
+    /** SPI setting for the shared request-signing secret. */
+    private static final String CONFIG_WEBHOOK_SECRET = "webhook-secret";
+    /** SPI setting for comma-separated native user-event names. */
+    private static final String CONFIG_EVENT_TYPES = "event-types";
+    /** SPI setting for the connection timeout in milliseconds. */
+    private static final String CONFIG_CONNECT_TIMEOUT_MS = "connect-timeout-ms";
+    /** SPI setting for the HTTP request timeout in milliseconds. */
+    private static final String CONFIG_REQUEST_TIMEOUT_MS = "request-timeout-ms";
+    /** SPI setting limiting the number of pending events. */
+    private static final String CONFIG_QUEUE_SIZE = "queue-size";
+
     /** Forwards only failed logins unless other native event types are configured. */
     private static final String DEFAULT_EVENT_TYPES = "LOGIN_ERROR";
     /** Default connection-establishment timeout in milliseconds. */
@@ -30,37 +45,37 @@ public final class KeycloakSnitchFactory implements EventListenerProviderFactory
     /** Returns the SPI provider name used in realm and server configuration. */
     @Override
     public String getId() {
-        return "snitch";
+        return PROVIDER_ID;
     }
 
     /** Validates native SPI settings and initializes the shared delivery resources. */
     @Override
     public void init(Config.Scope config) {
-        String url = config.get("webhook-url");
-        String secret = config.get("webhook-secret");
+        String url = config.get(CONFIG_WEBHOOK_URL);
+        String secret = config.get(CONFIG_WEBHOOK_SECRET);
 
         URI endpoint;
         try {
             endpoint = URI.create(url);
         } catch (RuntimeException invalid) {
-            throw new IllegalArgumentException("Configure a valid webhook-url");
+            throw new IllegalArgumentException("Configure a valid " + CONFIG_WEBHOOK_URL);
         }
 
         if (!isWebhookEndpoint(endpoint)) {
-            throw new IllegalArgumentException("Configure an HTTP(S) webhook-url without credentials or fragment");
+            throw new IllegalArgumentException("Configure an HTTP(S) " + CONFIG_WEBHOOK_URL + " without credentials or fragment");
         }
         if (secret == null || secret.isBlank()) {
-            throw new IllegalArgumentException("Configure webhook-secret");
+            throw new IllegalArgumentException("Configure " + CONFIG_WEBHOOK_SECRET);
         }
 
-        types = parseEventTypes(config.get("event-types", DEFAULT_EVENT_TYPES));
+        types = parseEventTypes(config.get(CONFIG_EVENT_TYPES, DEFAULT_EVENT_TYPES));
 
         delivery = new Delivery(
                 endpoint,
                 secret,
-                Duration.ofMillis(positive(config, "connect-timeout-ms", DEFAULT_CONNECT_TIMEOUT_MS)),
-                Duration.ofMillis(positive(config, "request-timeout-ms", DEFAULT_REQUEST_TIMEOUT_MS)),
-                positive(config, "queue-size", DEFAULT_QUEUE_SIZE)
+                Duration.ofMillis(positive(config, CONFIG_CONNECT_TIMEOUT_MS, DEFAULT_CONNECT_TIMEOUT_MS)),
+                Duration.ofMillis(positive(config, CONFIG_REQUEST_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS)),
+                positive(config, CONFIG_QUEUE_SIZE, DEFAULT_QUEUE_SIZE)
         );
     }
 
@@ -71,13 +86,13 @@ public final class KeycloakSnitchFactory implements EventListenerProviderFactory
         for (String entry : configured.split(",", -1)) {
             String name = entry.trim();
             if (name.isEmpty()) {
-                throw new IllegalArgumentException("event-types must not contain empty entries");
+                throw new IllegalArgumentException(CONFIG_EVENT_TYPES + " must not contain empty entries");
             }
 
             try {
                 selected.add(EventType.valueOf(name));
             } catch (IllegalArgumentException invalid) {
-                throw new IllegalArgumentException("Invalid event-types value: " + name, invalid);
+                throw new IllegalArgumentException("Invalid " + CONFIG_EVENT_TYPES + " value: " + name, invalid);
             }
         }
 

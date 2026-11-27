@@ -25,6 +25,10 @@ import org.junit.jupiter.api.Test;
 import org.keycloak.events.Event;
 import org.keycloak.events.EventListenerProviderFactory;
 import org.keycloak.events.EventType;
+import org.keycloak.events.admin.AdminEvent;
+import org.keycloak.events.admin.AuthDetails;
+import org.keycloak.events.admin.OperationType;
+import org.keycloak.events.admin.ResourceType;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakTransaction;
 import org.keycloak.models.KeycloakTransactionManager;
@@ -32,7 +36,7 @@ import org.keycloak.util.JsonSerialization;
 
 class KeycloakSnitchTest {
     private static final long SNAPSHOT_EVENT_TIME_MS = 123;
-    private static final int EXPECTED_PAYLOAD_FIELDS = 10;
+    private static final int EXPECTED_PAYLOAD_FIELDS = 6;
     private static final int AUTO_ASSIGNED_PORT = 0;
     private static final int DEFAULT_HTTP_BACKLOG = 0;
     private static final int IMMEDIATE_SHUTDOWN_DELAY_SECONDS = 0;
@@ -66,14 +70,59 @@ class KeycloakSnitchTest {
 
         var json = JsonSerialization.mapper.readTree(JsonSerialization.writeValueAsBytes(snapshot));
         assertEquals(EXPECTED_PAYLOAD_FIELDS, json.size());
-        assertTrue(json.get("userId").isNull());
-        assertTrue(json.get("ipAddress").isNull());
+        assertEquals(2, json.get("schemaVersion").asInt());
+        assertEquals("user", json.get("kind").asText());
+        assertFalse(json.has("admin"));
+        var user = json.get("user");
+        assertEquals(6, user.size());
+        assertFalse(user.has("details"));
+        assertTrue(user.get("userId").isNull());
+        assertTrue(user.get("ipAddress").isNull());
         assertEquals("1970-01-01T00:00:00.123Z", json.get("timestamp").asText());
-        assertEquals("LOGIN_ERROR", json.get("type").asText());
+        assertEquals("LOGIN_ERROR", user.get("type").asText());
         UUID.fromString(json.get("id").asText());
 
         event.setId("native");
         assertEquals("native", Payload.from(event).id());
+    }
+
+    @Test
+    void adminSnapshotSeparatesActorFromTargetAndOmitsRepresentation() throws Exception {
+        AdminEvent event = adminEvent();
+        event.setRepresentation("{\"secret\":\"private\"}");
+        Payload snapshot = Payload.from(event);
+        event.getAuthDetails().setUserId("later");
+
+        var json = JsonSerialization.mapper.readTree(JsonSerialization.writeValueAsBytes(snapshot));
+        assertEquals(2, json.get("schemaVersion").asInt());
+        assertEquals("admin", json.get("kind").asText());
+        assertEquals(EXPECTED_PAYLOAD_FIELDS, json.size());
+        assertFalse(json.has("user"));
+        var admin = json.get("admin");
+        assertEquals(6, admin.size());
+        assertEquals("target-realm", admin.get("realmId").asText());
+        var actor = admin.get("actor");
+        assertEquals(4, actor.size());
+        assertEquals("actor-realm", actor.get("realmId").asText());
+        assertEquals("actor", actor.get("userId").asText());
+        assertEquals("CREATE", admin.get("operationType").asText());
+        assertEquals("USER", admin.get("resourceType").asText());
+        assertEquals("users/new-user", admin.get("resourcePath").asText());
+        assertFalse(admin.has("representation"));
+        assertFalse(admin.has("details"));
+    }
+
+    @Test
+    void adminSnapshotHandlesMissingActor() throws Exception {
+        AdminEvent event = new AdminEvent();
+        Payload snapshot = Payload.from(event);
+        assertNull(snapshot.admin().actor());
+        assertNull(snapshot.user());
+        UUID.fromString(snapshot.id());
+
+        var json = JsonSerialization.mapper.readTree(JsonSerialization.writeValueAsBytes(snapshot));
+        assertTrue(json.get("admin").get("actor").isNull());
+        assertFalse(json.has("user"));
     }
 
     @Test
@@ -171,7 +220,7 @@ class KeycloakSnitchTest {
         );
 
         try {
-            var listener = new KeycloakSnitch(session, Set.of(EventType.LOGIN_ERROR), delivery);
+            var listener = new KeycloakSnitch(session, Set.of(EventType.LOGIN_ERROR), true, delivery);
 
             listener.onEvent(event("filtered", EventType.LOGIN));
             assertNull(transaction.get());
@@ -189,6 +238,25 @@ class KeycloakSnitchTest {
             commit.commit();
 
             assertEquals("committed", received.poll(EVENT_WAIT_SECONDS, TimeUnit.SECONDS));
+            AdminEvent admin = adminEvent();
+            var disabled = new KeycloakSnitch(session, Set.of(EventType.LOGIN_ERROR), false, delivery);
+            disabled.onEvent(admin, true);
+            assertNull(transaction.get());
+
+            admin.setId("admin-rolled-back");
+            listener.onEvent(admin, true);
+            KeycloakTransaction adminRollback = transaction.getAndSet(null);
+            assertNotNull(adminRollback);
+            adminRollback.begin();
+            adminRollback.rollback();
+
+            admin.setId("admin-event");
+            listener.onEvent(admin, true);
+            KeycloakTransaction adminCommit = transaction.getAndSet(null);
+            assertNotNull(adminCommit);
+            adminCommit.begin();
+            adminCommit.commit();
+            assertEquals("admin-event", received.poll(EVENT_WAIT_SECONDS, TimeUnit.SECONDS));
             assertNull(received.poll(NO_EXTRA_EVENT_WAIT_MS, TimeUnit.MILLISECONDS));
         } finally {
             delivery.close();
@@ -286,6 +354,22 @@ class KeycloakSnitchTest {
                     throw new UnsupportedOperationException(method.getName());
                 }
         );
+    }
+
+    private static AdminEvent adminEvent() {
+        AdminEvent event = new AdminEvent();
+        event.setId("admin-event");
+        event.setRealmId("target-realm");
+        event.setOperationType(OperationType.CREATE);
+        event.setResourceType(ResourceType.USER);
+        event.setResourcePath("users/new-user");
+        AuthDetails auth = new AuthDetails();
+        auth.setRealmId("actor-realm");
+        auth.setUserId("actor");
+        auth.setClientId("admin-cli");
+        auth.setIpAddress("203.0.113.1");
+        event.setAuthDetails(auth);
+        return event;
     }
 
     private static Event event(String id, EventType type) {

@@ -21,6 +21,8 @@ public final class KeycloakSnitchFactory implements EventListenerProviderFactory
     private static final String CONFIG_WEBHOOK_SECRET = "webhook-secret";
     /** SPI setting for comma-separated native user-event names. */
     private static final String CONFIG_EVENT_TYPES = "event-types";
+    /** Enables forwarding administrative event metadata. */
+    private static final String CONFIG_ADMIN_EVENTS = "admin-events";
     /** SPI setting for the connection timeout in milliseconds. */
     private static final String CONFIG_CONNECT_TIMEOUT_MS = "connect-timeout-ms";
     /** SPI setting for the HTTP request timeout in milliseconds. */
@@ -41,6 +43,8 @@ public final class KeycloakSnitchFactory implements EventListenerProviderFactory
     private Delivery delivery;
     /** Configured native user-event types selected for forwarding. */
     private Set<EventType> types;
+    /** Whether administrative events are forwarded. */
+    private boolean adminEvents;
 
     /** Returns the SPI provider name used in realm and server configuration. */
     @Override
@@ -69,6 +73,10 @@ public final class KeycloakSnitchFactory implements EventListenerProviderFactory
         }
 
         types = parseEventTypes(config.get(CONFIG_EVENT_TYPES, DEFAULT_EVENT_TYPES));
+        adminEvents = parseAdminEvents(config.get(CONFIG_ADMIN_EVENTS, "false"));
+        if (types.isEmpty() && !adminEvents) {
+            throw new IllegalArgumentException("Configure at least one user event or enable admin-events");
+        }
 
         delivery = new Delivery(
                 endpoint,
@@ -81,6 +89,10 @@ public final class KeycloakSnitchFactory implements EventListenerProviderFactory
 
     /** Parses comma-separated native event names and rejects unknown or empty entries. */
     private static Set<EventType> parseEventTypes(String configured) {
+        if (configured.isBlank()) {
+            return Set.of();
+        }
+
         Set<EventType> selected = EnumSet.noneOf(EventType.class);
 
         for (String entry : configured.split(",", -1)) {
@@ -96,7 +108,16 @@ public final class KeycloakSnitchFactory implements EventListenerProviderFactory
             }
         }
 
-        return selected;
+        return Set.copyOf(selected);
+    }
+
+    /** Parses the administrative event opt-in. */
+    private static boolean parseAdminEvents(String configured) {
+        return switch (configured) {
+            case "true" -> true;
+            case "false" -> false;
+            default -> throw new IllegalArgumentException(CONFIG_ADMIN_EVENTS + " must be true or false");
+        };
     }
 
     /** Accepts absolute HTTP(S) destinations without embedded credentials or fragments. */
@@ -119,7 +140,7 @@ public final class KeycloakSnitchFactory implements EventListenerProviderFactory
     /** Creates a session-scoped listener using the factory-owned worker. */
     @Override
     public EventListenerProvider create(KeycloakSession session) {
-        return new KeycloakSnitch(session, types, delivery);
+        return new KeycloakSnitch(session, types, adminEvents, delivery);
     }
 
     /** Requires no additional initialization after the Keycloak session factory starts. */

@@ -14,6 +14,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.keycloak.util.JsonSerialization;
@@ -55,6 +56,15 @@ final class Delivery implements AutoCloseable {
     /** Wall-clock milliseconds of the last emitted warning, shared across callers. */
     private final AtomicLong lastWarning = new AtomicLong();
 
+    /** Counts events admitted to the delivery queue. */
+    private final LongAdder accepted = new LongAdder();
+    /** Counts acknowledged HTTP deliveries. */
+    private final LongAdder delivered = new LongAdder();
+    /** Counts unsuccessful delivery attempts. */
+    private final LongAdder failed = new LongAdder();
+    /** Counts rejected or discarded queue entries. */
+    private final LongAdder dropped = new LongAdder();
+
     /** Creates shared delivery resources with connection, request, and pending-queue limits. */
     Delivery(URI endpoint, String secret, Duration connect, Duration timeout, int capacity) {
         this.endpoint = endpoint;
@@ -80,7 +90,9 @@ final class Delivery implements AutoCloseable {
     void offer(Payload event) {
         try {
             worker.execute(() -> send(event));
+            accepted.increment();
         } catch (RejectedExecutionException full) {
+            dropped.increment();
             warn(worker.isShutdown() ? "worker stopped" : "queue full");
         }
     }
@@ -102,12 +114,17 @@ final class Delivery implements AutoCloseable {
             HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
             int status = response.statusCode();
             if (status < HTTP_SUCCESS_MIN || status > HTTP_SUCCESS_MAX) {
+                failed.increment();
                 warn("receiver HTTP " + status);
+            } else {
+                delivered.increment();
             }
         } catch (InterruptedException interrupted) {
+            failed.increment();
             Thread.currentThread().interrupt();
             warn("shutdown");
         } catch (Exception failure) {
+            failed.increment();
             warn(failure.getClass().getSimpleName());
         }
     }
@@ -127,8 +144,16 @@ final class Delivery implements AutoCloseable {
         long previous = lastWarning.get();
 
         if (now - previous >= WARNING_INTERVAL_MS && lastWarning.compareAndSet(previous, now)) {
-            LOG.log(System.Logger.Level.WARNING, "Keycloak Snitch dropped event(s): " + reason);
+            LOG.log(System.Logger.Level.WARNING, "Keycloak Snitch dropped event(s): " + reason + "; " + statistics());
         }
+    }
+
+    /** Returns per-instance delivery counters for operational diagnostics. */
+    String statistics() {
+        return "accepted=" + accepted.sum() +
+            ", delivered=" + delivered.sum() +
+            ", failed=" + failed.sum() +
+            ", dropped=" + dropped.sum();
     }
 
     /** Stops accepting events, briefly drains the queue, and shuts down HTTP resources. */
@@ -145,12 +170,15 @@ final class Delivery implements AutoCloseable {
             Thread.currentThread().interrupt();
         } finally {
             client.shutdownNow();
+            LOG.log(System.Logger.Level.INFO, "Keycloak Snitch delivery totals: " + statistics());
         }
     }
 
     /** Interrupts active delivery and discards queued work when graceful shutdown ends. */
     private void stopPendingDeliveries() {
-        if (!worker.shutdownNow().isEmpty()) {
+        int discarded = worker.shutdownNow().size();
+        if (discarded > 0) {
+            dropped.add(discarded);
             warn("pending queue discarded at shutdown");
         }
     }

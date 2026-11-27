@@ -147,13 +147,55 @@ ids=$(printf '%s\n' "$received" | sed -n 's/.*\\"id\\"[[:space:]]*:[[:space:]]*\
 unique_ids=$(printf '%s\n' "$ids" | sed '/^$/d' | sort -u | wc -l | tr -d '[:space:]')
 clients=$(printf '%s\n' "$received" | grep -Ec '\\"clientId\\"[[:space:]]*:[[:space:]]*\\"smoke\\"' || true)
 ips=$(printf '%s\n' "$received" | grep -Ec '\\"ipAddress\\"[[:space:]]*:[[:space:]]*\\"[^"]+\\"' || true)
+versions=$(printf '%s\n' "$received" | grep -Ec '\\"schemaVersion\\"[[:space:]]*:[[:space:]]*2' || true)
+user_kinds=$(printf '%s\n' "$received" | grep -Ec '\\"kind\\"[[:space:]]*:[[:space:]]*\\"user\\"' || true)
+user_bodies=$(printf '%s\n' "$received" | grep -Ec '\\"user\\"[[:space:]]*:[[:space:]]*\{' || true)
 if [ "$count" -ne 3 ] || [ "$types" != 'LOGIN_ERROR,LOGIN,LOGIN' ] ||
-	[ "$unique_ids" -ne 3 ] || [ "$clients" -ne 3 ] || [ "$ips" -ne 3 ]; then
+	[ "$unique_ids" -ne 3 ] || [ "$clients" -ne 3 ] || [ "$ips" -ne 3 ] || [ "$versions" -ne 3 ] || [ "$user_kinds" -ne 3 ] || [ "$user_bodies" -ne 3 ] ||
+	printf '%s\n' "$received" | grep -Eq '\\"(admin|actor|operationType|resourceType|resourcePath)\\"'; then
 	printf 'Unexpected verified events (count=%s types=%s unique IDs=%s clients=%s IPs=%s):\n%s\n' \
 		"$count" "$types" "$unique_ids" "$clients" "$ips" "$received" >&2
 	exit 1
 fi
 printf 'Verified signed LOGIN_ERROR, LOGIN, LOGIN; refresh was filtered\n'
+
+# Create a disabled user through the Admin REST API.
+keycloak_url="http://127.0.0.1:${E2E_KC_PORT:-18083}"
+status=$(curl --silent --show-error --max-time 10 \
+	--output "$response_file" --write-out '%{http_code}' \
+	--data-urlencode 'client_id=admin-cli' --data-urlencode 'grant_type=password' \
+	--data-urlencode 'username=dev-admin' --data-urlencode 'password=dev-admin-password' \
+	"$keycloak_url/realms/master/protocol/openid-connect/token")
+assert_token 'admin login'
+admin_token=$(sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$response_file")
+status=$(curl --silent --show-error --max-time 10 \
+	--output "$response_file" --write-out '%{http_code}' \
+	-H "Authorization: Bearer $admin_token" -H 'Content-Type: application/json' \
+	--data '{"username":"snitch-admin-event-test","enabled":false}' \
+	"$keycloak_url/admin/realms/$realm/users")
+if [ "$status" != 201 ]; then
+	printf 'Admin user creation returned HTTP %s (expected 201)\n' "$status" >&2
+	exit 1
+fi
+attempt=0
+admin_event=''
+while [ "$attempt" -lt 30 ]; do
+	admin_event=$(receiver_events | grep -E '\\"kind\\"[[:space:]]*:[[:space:]]*\\"admin\\"' || true)
+	if [ -n "$admin_event" ]; then
+		break
+	fi
+	attempt=$((attempt + 1))
+	sleep 1
+done
+if ! printf '%s\n' "$admin_event" | grep -Eq '\\"schemaVersion\\"[[:space:]]*:[[:space:]]*2' ||
+	! printf '%s\n' "$admin_event" | grep -Eq '\\"operationType\\"[[:space:]]*:[[:space:]]*\\"CREATE\\"' ||
+	! printf '%s\n' "$admin_event" | grep -Eq '\\"resourceType\\"[[:space:]]*:[[:space:]]*\\"USER\\"' ||
+	! printf '%s\n' "$admin_event" | grep -Eq '\\"actor\\"[[:space:]]*:[[:space:]]*\{' ||
+	printf '%s\n' "$admin_event" | grep -Eq '\\"(user|representation|details)\\"'; then
+	printf 'Unexpected verified administrative event:\n%s\n' "$admin_event" >&2
+	exit 1
+fi
+printf 'Verified signed admin user creation without representation\n'
 
 compose stop receiver
 login dev-password
@@ -165,5 +207,5 @@ printf 'Verified successful login and delivery warning during receiver outage\n'
 compose start receiver
 wait_http "$receiver_url/healthz" "Hookglass (restarted)"
 success=true
-printf '\nEnd-to-end OK: real logins, refresh filtering, HMAC-verified events, and receiver outage.\n'
+printf '\nEnd-to-end OK: real logins, refresh filtering, administrative events, and receiver outage.\n'
 printf 'Inspect Hookglass logs: make e2e-logs\n'

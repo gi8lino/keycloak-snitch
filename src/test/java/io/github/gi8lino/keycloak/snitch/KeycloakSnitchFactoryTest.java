@@ -1,6 +1,7 @@
 package io.github.gi8lino.keycloak.snitch;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -26,6 +27,7 @@ class KeycloakSnitchFactoryTest {
 
             KeycloakSnitch listener = (KeycloakSnitch) factory.create(null);
             assertEquals(Set.of(EventType.LOGIN_ERROR), listener.types());
+            assertFalse(listener.adminEvents());
         } finally {
             factory.close();
         }
@@ -47,8 +49,44 @@ class KeycloakSnitchFactoryTest {
     }
 
     @Test
+    void enablesAdminEventsExplicitly() {
+        KeycloakSnitchFactory factory = new KeycloakSnitchFactory();
+        try {
+            Map<String, String> settings = new HashMap<>(VALID_SETTINGS);
+            settings.put("admin-events", "true");
+            factory.init(scope(settings));
+            assertTrue(((KeycloakSnitch) factory.create(null)).adminEvents());
+        } finally {
+            factory.close();
+        }
+    }
+
+    @Test
+    void acceptsAdministrativeOnlyMonitoring() {
+        KeycloakSnitchFactory factory = new KeycloakSnitchFactory();
+        try {
+            Map<String, String> settings = new HashMap<>(VALID_SETTINGS);
+            settings.put("event-types", "");
+            settings.put("admin-events", "true");
+            factory.init(scope(settings));
+            KeycloakSnitch listener = (KeycloakSnitch) factory.create(null);
+            assertTrue(listener.types().isEmpty());
+            assertTrue(listener.adminEvents());
+        } finally {
+            factory.close();
+        }
+    }
+
+    @Test
+    void rejectsInvalidAdminEvents() {
+        Map<String, String> settings = new HashMap<>(VALID_SETTINGS);
+        settings.put("admin-events", "typo");
+        assertInvalid(settings, "admin-events");
+    }
+
+    @Test
     void rejectsEmptyAndUnknownEventTypes() {
-        assertInvalidEventTypes("", "empty entries");
+        assertInvalidEventTypes("", "at least one");
         assertInvalidEventTypes("LOGIN_ERROR,", "empty entries");
         assertInvalidEventTypes("LOGIN_ERROR,,LOGIN", "empty entries");
         assertInvalidEventTypes("UNKNOWN_EVENT", "UNKNOWN_EVENT");

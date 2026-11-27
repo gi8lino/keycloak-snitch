@@ -28,6 +28,7 @@ services:
       KC_SPI_EVENTS_LISTENER__SNITCH__WEBHOOK_URL: http://receiver:8080/hmac
       KC_SPI_EVENTS_LISTENER__SNITCH__WEBHOOK_SECRET: dev-only-shared-secret
       KC_SPI_EVENTS_LISTENER__SNITCH__EVENT_TYPES: LOGIN,LOGIN_ERROR,LOGOUT
+      KC_SPI_EVENTS_LISTENER__SNITCH__ADMIN_EVENTS: "true"
     depends_on:
       receiver:
         condition: service_started

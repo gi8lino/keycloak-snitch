@@ -4,7 +4,7 @@
   <img src="assets/snitch.svg" alt="Keycloak Snitch" width="240" />
 </p>
 
-Keycloak Snitch sends Keycloak login events to an HTTP webhook. It runs as a Keycloak event listener and works with receivers such as [Keycloak Warden](https://github.com/gi8lino/keycloak-warden).
+Keycloak Snitch sends Keycloak user and administrative events to an HTTP webhook. It runs as a Keycloak event listener and works with receivers such as [Keycloak Warden](https://github.com/gi8lino/keycloak-warden).
 
 ```mermaid
 flowchart TD
@@ -33,7 +33,7 @@ Use the **E2E Docker Compose stack** to start Keycloak with Snitch and [Hookglas
 ```sh
 make e2e-up       # Build and start Keycloak and Hookglass; print the realm URL
 make e2e-logs     # Follow Keycloak and verified webhook logs
-make e2e-test     # Reset and verify real logins, token refresh, and an outage
+make e2e-test     # Reset and verify real logins, token refresh, admin events, and an outage
 make e2e-down     # Stop the stack
 ```
 
@@ -55,7 +55,7 @@ See the [E2E guide](test/e2e/README.md) for the full workflow. These are **devel
 3. For an optimized installation, run `bin/kc.sh build` with the JAR in place before starting Keycloak.
 4. In each realm, go to **Realm settings → Events → Event listeners**, add `snitch`, and save.
 
-Use a Snitch build compatible with your Keycloak version. The event listener SPI is internal to Keycloak and may change between releases. Snitch forwards user events, not admin events.
+Use a Snitch build compatible with your Keycloak version. The event listener SPI is internal to Keycloak and may change between releases. Administrative forwarding is opt-in.
 
 ## Keycloak event settings
 
@@ -82,11 +82,12 @@ The webhook URL and shared secret are required. Configure the same secret on the
 Optional settings (defaults in parentheses):
 
 - `KC_SPI_EVENTS_LISTENER__SNITCH__EVENT_TYPES` — Events to forward (`LOGIN_ERROR`).
+- `KC_SPI_EVENTS_LISTENER__SNITCH__ADMIN_EVENTS` — Forward administrative events (`false`).
 - `KC_SPI_EVENTS_LISTENER__SNITCH__CONNECT_TIMEOUT_MS` — Connection timeout (`1000` ms).
 - `KC_SPI_EVENTS_LISTENER__SNITCH__REQUEST_TIMEOUT_MS` — Request timeout (`2000` ms).
 - `KC_SPI_EVENTS_LISTENER__SNITCH__QUEUE_SIZE` — Pending events per Keycloak instance (`256`, plus one in flight).
 
-Timeouts and queue size must be positive. You can also use `keycloak.conf` with the `spi-events-listener--snitch--` prefix, for example:
+Set `EVENT_TYPES` to an empty string and enable `ADMIN_EVENTS` for administrative-only monitoring. At least one event category must be enabled. Timeouts and queue size must be positive. You can also use `keycloak.conf` with the `spi-events-listener--snitch--` prefix, for example:
 
 ```properties
 spi-events-listener--snitch--webhook-url=https://warden.example.com/events
@@ -96,24 +97,58 @@ A missing or invalid required setting prevents Keycloak from starting. A tempora
 
 ## Webhook format
 
-Snitch sends one JSON object per HTTP POST (`Content-Type: application/json`):
+Snitch sends one JSON object per HTTP POST (`Content-Type: application/json`).
+
+### User event
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "bb685023-a081-4423-be47-0d40fe4aa59c",
   "source": "keycloak",
-  "type": "LOGIN_ERROR",
+  "kind": "user",
   "timestamp": "2026-11-05T14:30:00Z",
-  "realmId": "example",
-  "clientId": "application",
-  "userId": null,
-  "ipAddress": "203.0.113.42",
-  "error": "invalid_user_credentials"
+  "user": {
+    "type": "LOGIN_ERROR",
+    "realmId": "example",
+    "clientId": "application",
+    "userId": null,
+    "ipAddress": "203.0.113.42",
+    "error": "invalid_user_credentials"
+  }
 }
 ```
 
-All fields are present; `realmId`, `clientId`, `userId`, `ipAddress`, and `error` may be `null`. The `id` identifies an event and can be used for deduplication. The IP address is provided by Keycloak, so configure trusted proxies correctly if Keycloak runs behind one.
+The envelope includes the five common metadata fields and exactly one event object. For `kind: "user"`, `user` contains the native event type and identity fields. Unknown identity fields and `error` may be `null`. The event ID supports deduplication. Configure Keycloak trusted proxies correctly so the reported client IP is reliable.
+
+### Administrative event
+
+```json
+{
+  "schemaVersion": 2,
+  "id": "ea9fc922-39e3-48d5-8d80-ef3aa801c36f",
+  "source": "keycloak",
+  "kind": "admin",
+  "timestamp": "2026-11-05T14:35:00Z",
+  "admin": {
+    "realmId": "example",
+    "operationType": "CREATE",
+    "resourceType": "REALM_ROLE_MAPPING",
+    "resourcePath": "users/example-user/role-mappings/realm",
+    "actor": {
+      "realmId": "master",
+      "clientId": "admin-client-id",
+      "userId": "administrator-id",
+      "ipAddress": "203.0.113.42"
+    },
+    "error": null
+  }
+}
+```
+
+For `kind: "admin"`, `admin.realmId` is the affected realm. `admin.actor` contains the administrator’s authentication realm, native Keycloak client ID, user ID and IP address; it can be `null` when authentication details are unavailable. The `user` object is absent. Resource representations and arbitrary event details are never forwarded.
+
+Enable `KC_SPI_EVENTS_LISTENER__SNITCH__ADMIN_EVENTS=true` to forward administrative events. Both categories share the best-effort delivery queue.
 
 ### Verify the signature
 
@@ -134,7 +169,7 @@ Compare the decoded digest in constant time, reject old timestamps, and deduplic
 
 Snitch queues events after their Keycloak transaction commits and sends them asynchronously, so webhook latency does not block logins. Rolled-back events are discarded.
 
-**Delivery is best effort:** there is no persistent queue or retry. A full queue, timeout, or receiver error can lose an event. On shutdown, Snitch waits up to three seconds for queued deliveries to finish, then interrupts any remaining work. Events may still be lost. Monitor Keycloak warnings and size the queue for your load.
+**Delivery is best effort:** there is no persistent queue or retry. A full queue, timeout, or receiver error can lose an event. On shutdown, Snitch waits up to three seconds for queued deliveries to finish, then interrupts any remaining work. Events may still be lost. Monitor Keycloak warnings and size the queue for your load. Warnings and shutdown summaries include per-instance accepted, delivered, failed and dropped counters. These are log diagnostics, not Prometheus collectors.
 
 ## Kubernetes
 
